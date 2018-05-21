@@ -1,1 +1,8 @@
 **/.vscode
+*.json
+*.keys
+*.txt
+*.html
+*.pdf
+*.doc
+*.docx

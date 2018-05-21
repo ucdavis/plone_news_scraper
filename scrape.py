@@ -8,7 +8,8 @@ import re
 
 pathInfo = {}
 rootDir = os.path.abspath(os.path.curdir)
-map_link_to_resource = open("index.keys", "w")
+map_link_to_resource = open("index.json", "w")
+newsArticles = open("news.json", "w")
 errors = open("errors.txt", "w")
 pages_parsed = set()
 agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36'
@@ -17,37 +18,48 @@ opener.addheaders = [('User-agent', agent)]
 urllib.request.install_opener(opener)
 
 def scrapeNewsArticle(article):
+	data = {}
 	tileHeadline = article.find("h2", {"class": "tileHeadline"})
-	headline = tileHeadline.string
+	data["headline"] = tileHeadline.find("a").decode_contents()
 	url = tileHeadline.find("a", {"class": "url"})["href"]
-	author = article.find('span', {"class": "documentByLine"}).string
-	description = article.find('p', {"class": "tileBody"}).string
-	image = article.find('img', {"class": "tileImage"})['src']
-	link = article.find("a", {""})
-	manageLink(link)(link)
-
-def manageLink(relative):
-	def useLink(link):
-		extension = link.split('/')[3:]
-		hostname = link.split('/')[2:3][0]
-		extension = "/" + ('/').join(extension)
-		end = relative['href']
-		if not hostname in end:
-			if end[0] is not "/":
-				transformed = extension + "/" + relative['href']
-				goto = link + '/' + end
-			else:
-				transformed = end
-				goto = "http://" + hostname + end
-			relative['href'] = transformed
+	try:
+		author = article.find('span', {"class": "documentByLine"})
+		data["author"] = author.find("span").find("a").decode_contents()
+		data["author-link"] = author.find("span").find("a")["href"]
+	except Exception as e:
+		print(e)
+	try:
+		data["description"] = article.find('span', {"class": "description"}).decode_contents()
+	except Exception as e:
+		print(e)
+	link = article.find("a")
+	extension = url.split('/')[3:]
+	hostname = url.split('/')[2:3][0]
+	extension = "/" + ('/').join(extension)
+	end = link['href']
+	if not hostname in end:
+		if end[0] is not "/":
+			transformed = extension + "/" + link['href']
+			goto = url + '/' + end
 		else:
-			goto = end
-			relative['href'] = "/" + ('/').join(end.split('/')[3:])
-		currentDirectory = os.path.abspath(os.path.curdir)
-		os.chdir(rootDir)
-		parse_page(goto)
-		os.chdir(currentDirectory)
-	return useLink
+			transformed = end
+			goto = "http://" + hostname + end
+		link['href'] = transformed
+	else:
+		goto = end
+		link['href'] = "/" + ('/').join(end.split('/')[3:])
+	currentDirectory = os.path.abspath(os.path.curdir)
+	os.chdir(rootDir)
+	directory = url.split('/')[-1]
+	try:
+		os.makedirs(directory)
+	except Exception as e:
+		print(e)
+	os.chdir(directory)
+	newsInfo = open("news.json", "w")
+	json.dump(data, newsInfo, sort_keys=True, indent=4, separators=(',', ': '))
+	parse_page(goto)
+	os.chdir(currentDirectory)
 
 def parse_news(link):
 	print(link)
@@ -86,14 +98,12 @@ def parse_news(link):
 		print(e)
 	os.chdir(directory)
 	try:
-		items = html.find_all('a', {"class":"tileItem"})
+		items = html.find_all('div', {"class":"tileItem"})
 	except Exception as e:
 		print("not a content page " + str(e))
 		return
-	
 	for article in items:
 		scrapeNewsArticle(article)
-	output = open("index.html", "wb")
 	dirObject = {}
 	dirObject["path"] = link
 	try:
@@ -102,8 +112,6 @@ def parse_news(link):
 	except Exception as e:
 		print(e)
 	pathInfo[directory] = dirObject
-	output.write(html.encode())
-	output.close()
 
 def parse_page(link):
 	print(link)
@@ -111,8 +119,8 @@ def parse_page(link):
 		return
 	pages_parsed.add(link)
 	site = link
-	directory = link.split('/')[-1]
 	hdr = {'User-Agent': 'Mozilla/5.0'}
+	directory = link.split('/')[-1]
 	req = urllib.request.Request(site,headers=hdr)
 	try:
 		page = urllib.request.urlopen(req)
@@ -136,11 +144,6 @@ def parse_page(link):
 	except Exception as e:
 		print(e)
 		return
-	try:
-		os.makedirs(directory)
-	except Exception as e:
-		print(e)
-	os.chdir(directory)
 	try:
 		images = html.find_all('img')
 	except Exception as e:
@@ -185,3 +188,4 @@ if __name__ == '__main__':
 	parse_news(sys.argv[1])
 	json.dump(pathInfo, map_link_to_resource, sort_keys=True, indent=4, separators=(',', ': '))
 	map_link_to_resource.close()
+	newsArticles.close()
