@@ -17,7 +17,7 @@ opener = urllib.request.build_opener()
 opener.addheaders = [('User-agent', agent)]
 urllib.request.install_opener(opener)
 
-def scrapeNewsArticle(article):
+def scrapeNewsArticle(article, curURL):
 	data = {}
 	tileHeadline = article.find("h2", {"class": "tileHeadline"})
 	data["headline"] = tileHeadline.find("a").decode_contents()
@@ -32,31 +32,35 @@ def scrapeNewsArticle(article):
 		data["description"] = article.find('span', {"class": "description"}).decode_contents()
 	except Exception as e:
 		print(e)
-	link = article.find("a")
-	extension = url.split('/')[3:]
-	hostname = url.split('/')[2:3][0]
-	extension = "/" + ('/').join(extension)
-	end = link['href']
-	if not hostname in end:
-		if end[0] is not "/":
-			transformed = extension + "/" + link['href']
-			goto = url + '/' + end
-		else:
-			transformed = end
-			goto = "http://" + hostname + end
-		link['href'] = transformed
-	else:
-		goto = end
-		link['href'] = "/" + ('/').join(end.split('/')[3:])
+	goto = urllib.parse.urljoin(curURL, url)
 	currentDirectory = os.path.abspath(os.path.curdir)
 	os.chdir(rootDir)
 	directory = url.split('/')[-1]
 	try:
 		os.makedirs(directory)
 	except Exception as e:
-		print(e)
+		print("error creating directory: " + str(e))
 	os.chdir(directory)
 	newsInfo = open("news.json", "w")
+	image_link = None
+	try:
+		image = article.find("img", {"class": "tileImage"})
+		image_link = image.get('src')
+		if not "https://" or not "http://" in image_link:
+			image_link = urllib.parse.urljoin(curURL, image_link)
+		path = urllib.request.urlopen(image_link)
+		filename = path.url.split('/')[-1]
+		if filename is 'thumb' or filename is 'preview' or filename is 'mini':
+			print('url not getting translated: ' + path.url)
+		image['alt'] = filename
+		while os.path.isfile(filename):
+			(root, ext) = os.path.splitext(filename)
+			filename = root + "(1)" + ext
+		urllib.request.urlretrieve(image_link, filename=filename)
+	except Exception as e:
+		print("image link not working: " + str(image_link))
+		print(e)
+		errors.write(str(image_link)+"\n")
 	json.dump(data, newsInfo, sort_keys=True, indent=4, separators=(',', ': '))
 	parse_page(goto)
 	os.chdir(currentDirectory)
@@ -103,7 +107,7 @@ def parse_news(link):
 		print("not a content page " + str(e))
 		return
 	for article in items:
-		scrapeNewsArticle(article)
+		scrapeNewsArticle(article, link)
 	dirObject = {}
 	dirObject["path"] = link
 	try:
