@@ -57,7 +57,7 @@ class Parser:
 			else:
 				goto = end
 				relative['href'] = "/" + ('/').join(end.split('/')[3:])
-			self.cdExecute(self.rootDir, lambda: self.parse_page(goto))
+			self.cdExecute(self.rootDir, lambda: self.parse(goto))
 		return useLink
 
 	def doNothing(self, *args):
@@ -124,7 +124,7 @@ class Parser:
 				print(e)
 				self.errors.write(str(image_link)+"\n")
 			json.dump(data, newsInfo, sort_keys=True, indent=4, separators=(',', ': '))
-			self.parse_page(goto)
+			self.cdExecute("../", lambda: self.parse(goto))
 			pass
 		self.cdExecute(directory, parseArticle)
 
@@ -140,7 +140,7 @@ class Parser:
 			return None
 		if 'text/html' not in page.headers['Content-Type']:
 			try:
-				urllib.request.urlretrieve(link, filename=directory)
+				urllib.request.urlretrieve(link, filename=(directory + ".pdf"))
 			except Exception as e:
 				self.errors.write("cannot save file at regular url" + link + " error: " + str(e))
 				print("cannot save file at regular url" + link + " error: " + str(e))
@@ -160,11 +160,53 @@ class Parser:
 			return self.doNothing(link)
 		if "portaltype-collection" in body.get("class"):
 			return self.parse_news(link)
+		if "portaltype-folder" in body.get("class"):
+			return self.parse_files(link)
 		# TODO improve pattern matchin
 		if "portaltype-document" in body.get("class") or "portaltype-news-item" in body.get("class"):
 			return self.parse_page(link)
 		return self.doNothing(link)
 		
+	def parse_files(self, link, num=1):	
+		page = self.getPage(link)
+		if page is None:
+			return
+		print(link)
+		hostname = link.split('/')[2:3][0]
+		soup = BeautifulSoup(page, 'html.parser')
+
+		try:
+			os.makedirs(os.path.abspath("./files"))
+		except Exception as e:
+			pass
+		os.chdir(os.path.abspath("./files"))
+		try:
+			html = soup.find("div", {"id": re.compile("content-core*") })
+		except Exception as e:
+			print(e)
+			return
+		try:
+			links = html.find_all('a', {"class":"contenttype-file"})
+		except Exception as e:
+			print("not a content page " + str(e))
+			return
+
+		for href in links:
+			self.chooseLinkOption(href)(link)
+
+		os.chdir(os.path.abspath("../"))
+		try:
+			listing = html.find('div', {"class":"listingBar"})
+			pages = listing.find_all("a")
+			index = num - 1
+			if listing.find("span", {"class": "previous"}) is not None:
+				index += 1
+			if listing.find("span", {"class": "next"}) is not None:
+				index += 1
+			otherpage = pages[index]
+			self.parse_files(otherpage["href"], num + 1)
+		except Exception as e:
+			print("can't find any more files, quitting", str(e))
 
 	def parse_news(self, link, num=1):
 		page = self.getPage(link)
@@ -211,6 +253,18 @@ class Parser:
 		print(link)
 		hostname = link.split('/')[2:3][0]
 		soup = BeautifulSoup(page, 'html.parser')
+		directory = link.split('/')[-1]
+		try:
+			os.makedirs(directory)
+		
+		except Exception as e:
+			print(e)
+			try:
+				directory = link.split('/')[-2] + '-' + directory
+			except Exception as e:
+				print(e)
+
+		os.chdir(directory)
 		#print soup
 		try:
 			html = soup.find("div", {"id": re.compile("parent-fieldname-text*") })
@@ -219,13 +273,13 @@ class Parser:
 			return
 		try:
 			links = html.find_all('a', {"class":"internal-link"})
+			links += soup.find_all('a', {"class": "contenttype-link"})
 			links += [item for item in html.find_all('a', {"href": re.compile(hostname)}) if not ("class" in item.attrs and "internal-link" in item.attrs['class'])]
 			images = html.find_all('img')
 		except Exception as e:
 			print("not a content page " + str(e))
 			return
 		for image in images:
-			
 			image_link = image.get('src')
 			try:
 				if not "https://" or not "http://" in image_link:
@@ -242,6 +296,21 @@ class Parser:
 						(root, ext) = os.path.splitext(filename)
 						filename = root + "(1)" + ext
 					urllib.request.urlretrieve(image_link, filename=filename)
+
+				elif hostname in image_link:
+					path = urllib.request.urlopen(image_link)
+					if '@@images' in path.url:
+						filename = path.url.split('/')[-3]
+					else:
+						filename = path.url.split('/')[-1]
+					if filename is 'thumb' or filename is 'preview' or filename is 'mini':
+						print('url not getting translated: ' + path.url)
+					image['alt'] = filename
+					while os.path.isfile(filename):
+						(root, ext) = os.path.splitext(filename)
+						filename = root + "(1)" + ext
+					urllib.request.urlretrieve(image_link, filename=filename)
+					
 			except:
 				print("image link not working: " + str(link) + ": " + str(image_link))
 				self.errors.write(str(link) + ": " + str(image_link)+"\n")
@@ -256,10 +325,10 @@ class Parser:
 			dirObject["title"] = titleName.string.strip('\n')
 		except Exception as e:
 			print(e)
-		directory = link.split('/')[-1]
 		self.pathInfo[directory] = dirObject
 		output.write(html.encode())
 		output.close()
+		os.chdir('../')
 
 if __name__ == '__main__':
 	if len(sys.argv) < 1:
