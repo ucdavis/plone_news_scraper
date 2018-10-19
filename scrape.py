@@ -26,7 +26,7 @@ class Parser:
 	def loop(self):
 		while not len(self.links) == 0:
 			link = self.links.popleft()
-			self.parse(link)
+			self.parse(*link)
 
 	def build_opener(self):
 		opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookie))
@@ -71,7 +71,7 @@ class Parser:
 			else:
 				goto = end
 				relative['href'] = "/" + ('/').join(end.split('/')[3:])
-			self.cdExecute(self.rootDir, lambda: self.parse(goto))
+			self.links.append((goto,))
 		return useLink
 
 	def doNothing(self, *args):
@@ -87,6 +87,7 @@ class Parser:
 			return self.manageFile(relative)
 		return self.manageLink(relative)
 	def cdExecute(self, directory, func):
+		result = None
 		currentDirectory = os.path.abspath(os.path.curdir)
 		try:
 			os.makedirs(directory)
@@ -94,10 +95,11 @@ class Parser:
 			pass
 		os.chdir(directory)
 		try:
-			func()
+			result = func()
 		except Exception as e:
 			print(e)
 		os.chdir(currentDirectory)
+		return result
 
 	def scrapeNewsArticle(self, article, curURL):
 		data = {}
@@ -138,7 +140,7 @@ class Parser:
 				print(e)
 				self.errors.write(str(image_link)+"\n")
 			json.dump(data, newsInfo, sort_keys=True, indent=4, separators=(',', ': '))
-			self.cdExecute("../", lambda: self.parse(goto, False))
+			self.links.append((goto, False))
 			pass
 		self.cdExecute(directory, parseArticle)
 
@@ -198,12 +200,14 @@ class Parser:
 		if body.get("class") is None:
 			return self.doNothing(link, *args)
 		if "portaltype-collection" in body.get("class") or "":
-			return self.parse_news(link, *args)
+			return self.cdExecute(self.rootDir + "/news", lambda: self.parse_news(link, *args))
 		if "portaltype-folder" in body.get("class"):
-			return self.parse_files(link, *args)
+			return self.cdExecute(self.rootDir + "/files", lambda: self.parse_files(link, *args))
 		# TODO improve pattern matchin
-		if "portaltype-document" in body.get("class") or "portaltype-news-item" in body.get("class"):
-			return self.parse_page(link, *args)
+		if "portaltype-document" in body.get("class"):
+			return self.cdExecute(self.rootDir + "/articles", lambda: self.parse_page(link, *args))
+		if "portaltype-news-item" in body.get("class"):
+			return self.cdExecute(self.rootDir + "/news", lambda: self.parse_page(link, *args))
 		if "template-login_form" in body.get("class"):
 			return self.login(link, *args)
 		return self.doNothing(link, *args)
@@ -216,11 +220,6 @@ class Parser:
 		hostname = link.split('/')[2:3][0]
 		soup = BeautifulSoup(page, 'html.parser')
 
-		try:
-			os.makedirs(os.path.abspath("./files"))
-		except Exception as e:
-			pass
-		os.chdir(os.path.abspath("./files"))
 		try:
 			html = soup.find("div", {"id": re.compile("content-core*") })
 		except Exception as e:
@@ -236,7 +235,6 @@ class Parser:
 		for href in links:
 			self.chooseLinkOption(href)(link)
 
-		os.chdir(os.path.abspath("../"))
 		try:
 			listing = html.find('div', {"class":"listingBar"})
 			pages = listing.find_all("a")
@@ -246,7 +244,7 @@ class Parser:
 			if listing.find("span", {"class": "next"}) is not None:
 				index += 1
 			otherpage = pages[index]
-			self.parse_files(otherpage["href"], num + 1)
+			self.links.append((otherpage["href"], num + 1))
 		except Exception as e:
 			print("can't find any more files, quitting", str(e))
 
@@ -267,11 +265,6 @@ class Parser:
 		except Exception as e:
 			print("not a content page " + str(e))
 			return
-		try:
-			os.makedirs(os.path.abspath("./news"))
-		except Exception as e:
-			pass
-		os.chdir(os.path.abspath("./news"))
 		for article in items:
 			self.scrapeNewsArticle(article, link)
 		os.chdir(os.path.abspath("../"))
@@ -284,7 +277,7 @@ class Parser:
 			if listing.find("span", {"class": "next"}) is not None:
 				index += 1
 			otherpage = pages[index]
-			self.parse_news(otherpage["href"], num + 1)
+			self.links.append((otherpage["href"], num + 1))
 		except Exception as e:
 			print("can't find any more news, quitting", str(e))
 
@@ -379,12 +372,12 @@ class Parser:
 		self.pathInfo[directory] = dirObject
 		output.write(html.encode())
 		output.close()
-		os.chdir('../')
 
 if __name__ == '__main__':
 	if len(sys.argv) < 1:
 		raise AttributeError("please call with a url") 
 	parser = Parser()
-	parser.parse(sys.argv[1])
+	parser.links.append((sys.argv[1],))
+	parser.loop()
 	json.dump(parser.pathInfo, parser.map_link_to_resource, sort_keys=True, indent=4, separators=(',', ': '))
 	parser.map_link_to_resource.close()
