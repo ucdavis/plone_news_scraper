@@ -1,10 +1,14 @@
 import urllib.request, urllib.error, urllib.parse
+import requests
 from bs4 import BeautifulSoup
 import json
 import sys
 import os
 from url_normalize import url_normalize
+from collections import deque
 import re
+import plone_login
+import http.cookiejar
 
 agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36'
 
@@ -15,7 +19,17 @@ class Parser:
 		self.map_link_to_resource = open("index.json", "w")
 		self.errors = open("errors.txt", "w")
 		self.pages_parsed = set()
-		opener = urllib.request.build_opener()
+		self.cookie = http.cookiejar.CookieJar()
+		self.build_opener()
+		self.links = deque()
+
+	def loop(self):
+		while not len(self.links) == 0:
+			link = self.links.popleft()
+			self.parse(link)
+
+	def build_opener(self):
+		opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookie))
 		opener.addheaders = [('User-agent', agent)]
 		urllib.request.install_opener(opener)
 
@@ -124,9 +138,19 @@ class Parser:
 				print(e)
 				self.errors.write(str(image_link)+"\n")
 			json.dump(data, newsInfo, sort_keys=True, indent=4, separators=(',', ': '))
-			self.cdExecute("../", lambda: self.parse(goto))
+			self.cdExecute("../", lambda: self.parse(goto, False))
 			pass
 		self.cdExecute(directory, parseArticle)
+
+	def login(self, link, *args):
+		hostname = link.split('/')[2:3][0]
+		auth_cookie = plone_login.get_session_cookie("http://" + hostname, sys.argv[2], sys.argv[3])
+		for k, v in auth_cookie.items():
+			new_cookie = requests.cookies.create_cookie(k, v)
+			self.cookie.set_cookie(new_cookie)
+
+		self.build_opener()
+		return "login"
 
 	def getPage(self, link):
 		directory = link.split('/')[-1]
@@ -134,10 +158,25 @@ class Parser:
 		req = urllib.request.Request(link,headers=hdr)
 		try:
 			page = urllib.request.urlopen(req)
+			if page.url is not link:
+				result = self.parse(page.url)
+				if result is "login":
+					page = urllib.request.urlopen(req)
+
 		except Exception as e:
-			self.errors.write("cannot parse page " + link + "with error: " + str(e))
-			print("cannot parse page " + link + " with error: " + str(e))
-			return None
+			if len(sys.argv) >= 4:
+				try:
+					self.login(link)
+					page = urllib.request.urlopen(req)
+				except Exception as e:
+					print("can't login to " + hostname)
+					self.errors.write("cannot parse page " + link + "with error: " + str(e))
+					print("cannot parse page " + link + " with error: " + str(e))
+					return None
+			else:
+				self.errors.write("cannot parse page " + link + "with error: " + str(e))
+				print("cannot parse page " + link + " with error: " + str(e))
+				return None
 		if 'text/html' not in page.headers['Content-Type']:
 			try:
 				urllib.request.urlretrieve(link, filename=(directory + ".pdf"))
@@ -147,7 +186,7 @@ class Parser:
 			return None
 		return page
 
-	def parse(self, link):
+	def parse(self, link, *args):
 		page = self.getPage(link)
 		if page is None:
 			return self.doNothing(link)
@@ -157,17 +196,19 @@ class Parser:
 		soup = BeautifulSoup(page, 'html.parser')
 		body = soup.find("body")
 		if body.get("class") is None:
-			return self.doNothing(link)
-		if "portaltype-collection" in body.get("class"):
-			return self.parse_news(link)
+			return self.doNothing(link, *args)
+		if "portaltype-collection" in body.get("class") or "":
+			return self.parse_news(link, *args)
 		if "portaltype-folder" in body.get("class"):
-			return self.parse_files(link)
+			return self.parse_files(link, *args)
 		# TODO improve pattern matchin
 		if "portaltype-document" in body.get("class") or "portaltype-news-item" in body.get("class"):
-			return self.parse_page(link)
-		return self.doNothing(link)
+			return self.parse_page(link, *args)
+		if "template-login_form" in body.get("class"):
+			return self.login(link, *args)
+		return self.doNothing(link, *args)
 		
-	def parse_files(self, link, num=1):	
+	def parse_files(self, link, num=1, *args):	
 		page = self.getPage(link)
 		if page is None:
 			return
@@ -187,6 +228,7 @@ class Parser:
 			return
 		try:
 			links = html.find_all('a', {"class":"contenttype-file"})
+			links = html.find_all('a', {"class":"url"})
 		except Exception as e:
 			print("not a content page " + str(e))
 			return
@@ -208,7 +250,7 @@ class Parser:
 		except Exception as e:
 			print("can't find any more files, quitting", str(e))
 
-	def parse_news(self, link, num=1):
+	def parse_news(self, link, num=1, *args):
 		page = self.getPage(link)
 		if page is None:
 			return
@@ -246,7 +288,7 @@ class Parser:
 		except Exception as e:
 			print("can't find any more news, quitting", str(e))
 
-	def parse_page(self, link):
+	def parse_page(self, link, *args):
 		page = self.getPage(link)
 		if page is None:
 			return
@@ -254,15 +296,22 @@ class Parser:
 		hostname = link.split('/')[2:3][0]
 		soup = BeautifulSoup(page, 'html.parser')
 		directory = link.split('/')[-1]
-		try:
-			os.makedirs(directory)
-		
-		except Exception as e:
-			print(e)
+
+		makedir = True
+		if len(args) > 0:
+			makedir = args[0]
+
+		if makedir:
 			try:
-				directory = link.split('/')[-2] + '-' + directory
+				os.makedirs(directory)
+			
 			except Exception as e:
 				print(e)
+				try:
+					directory = link.split('/')[-2] + '-' + directory
+					os.makedirs(directory)
+				except Exception as e:
+					print(e)
 
 		os.chdir(directory)
 		#print soup
@@ -274,6 +323,8 @@ class Parser:
 		try:
 			links = html.find_all('a', {"class":"internal-link"})
 			links += soup.find_all('a', {"class": "contenttype-link"})
+			links += soup.find_all('a', {"class": "contenttype-document"})
+			links += soup.find_all('a', {"class": "contenttype-folder"})
 			links += [item for item in html.find_all('a', {"href": re.compile(hostname)}) if not ("class" in item.attrs and "internal-link" in item.attrs['class'])]
 			images = html.find_all('img')
 		except Exception as e:
