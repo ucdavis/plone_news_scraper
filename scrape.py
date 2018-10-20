@@ -171,6 +171,7 @@ class Parser:
 					self.login(link)
 					page = urllib.request.urlopen(req)
 				except Exception as e:
+					hostname = link.split('/')[2:3][0]
 					print("can't login to " + hostname)
 					self.errors.write("cannot parse page " + link + "with error: " + str(e))
 					print("cannot parse page " + link + " with error: " + str(e))
