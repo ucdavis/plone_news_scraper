@@ -24,7 +24,7 @@ class Parser:
 		self.links = deque()
 
 	def loop(self):
-		while not len(self.links) == 0:
+		while len(self.links) > 0:
 			link = self.links.popleft()
 			self.parse(*link)
 
@@ -352,6 +352,9 @@ class Parser:
 				email = email_span.find("a").get_text()
 				if email and len(email) > 0:
 					info["email"] = email
+
+			title = [t.get_text() for t in soup.find_all("p", {"class": "title"})]
+			info["title"] = title
 			
 			if html:
 				with open("index.html", "wb") as output:
