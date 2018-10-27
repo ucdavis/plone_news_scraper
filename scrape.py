@@ -161,6 +161,7 @@ class Parser:
 		try:
 			page = urllib.request.urlopen(req)
 			if page.url is not link:
+				print(page.url + " is not " + link)
 				result = self.parse(page.url)
 				if result is "login":
 					page = urllib.request.urlopen(req)
@@ -190,12 +191,12 @@ class Parser:
 		return page
 
 	def parse(self, link, *args):
-		page = self.getPage(link)
-		if page is None:
-			return self.doNothing(link)
 		if link in self.pages_parsed:
 			return None
 		self.pages_parsed.add(link)
+		page = self.getPage(link)
+		if page is None:
+			return self.doNothing(link)
 		soup = BeautifulSoup(page, 'html.parser')
 		body = soup.find("body")
 		if body.get("class") is None:
@@ -211,6 +212,11 @@ class Parser:
 			return self.cdExecute(self.rootDir + "/news", lambda: self.parse_page(link, *args))
 		if "template-login_form" in body.get("class"):
 			return self.login(link, *args)
+		if "portaltype-fsdperson" in body.get("class"):
+			return self.cdExecute(self.rootDir + "/people", lambda: self.parse_person(link, *args))
+		if "portaltype-fsdfacultystaffdirectory" in body.get("class"):
+			return self.cdExecute(self.rootDir + "/people", lambda: self.parse_people(link, *args))
+
 		return self.doNothing(link, *args)
 		
 	def parse_files(self, link, num=1, *args):	
@@ -236,8 +242,11 @@ class Parser:
 		for href in links:
 			self.chooseLinkOption(href)(link)
 
+		handle_listing(html, num)
+
+	def handle_listing(self, htmlSoup, num):
 		try:
-			listing = html.find('div', {"class":"listingBar"})
+			listing = htmlSoup.find('div', {"class":"listingBar"})
 			pages = listing.find_all("a")
 			index = num - 1
 			if listing.find("span", {"class": "previous"}) is not None:
@@ -269,18 +278,136 @@ class Parser:
 		for article in items:
 			self.scrapeNewsArticle(article, link)
 		os.chdir(os.path.abspath("../"))
+		
+		self.handle_listing(html, num)
+
+	def parse_people(self, link, *args):
+		page = self.getPage(link)
+		if page is None:
+			return
+		print(link)
+		soup = BeautifulSoup(page, 'html.parser')
+		#print soup
 		try:
-			listing = html.find('div', {"class":"listingBar"})
-			pages = listing.find_all("a")
-			index = num - 1
-			if listing.find("span", {"class": "previous"}) is not None:
-				index += 1
-			if listing.find("span", {"class": "next"}) is not None:
-				index += 1
-			otherpage = pages[index]
-			self.links.append((otherpage["href"], num + 1))
+			html = soup.find("div", {"id": re.compile("totalcontent") })
 		except Exception as e:
-			print("can't find any more news, quitting", str(e))
+			print(e)
+			return
+		try:
+			items = [element.find('a') for element in html.find_all('div', {"class":"moreInfo"})]
+		except Exception as e:
+			print("not a content page " + str(e))
+			return
+		for person in items:
+			self.links.append((person['href'],))
+
+	def parse_person(self, link, *args):
+		page = self.getPage(link)
+		if page is None:
+			return
+		print(link)
+		soup = BeautifulSoup(page, 'html.parser')
+		directory = link.split('/')[-1]
+
+		try:
+			os.makedirs(directory)
+
+		except Exception as e:
+			print(e)
+			try:
+				directory = link.split('/')[-2] + '-' + directory
+				os.makedirs(directory)
+			except Exception as e:
+				print(e)
+				return
+
+		os.chdir(directory)
+		#print soup
+		try:
+			info = {}
+
+			html = soup.find("div", {"class": "biography" })
+			given_name = soup.find("span", {"class": "given-name"}).get_text()
+			middle_name = soup.find("span", {"class": "additional-name"}).get_text()
+			family_name = soup.find("span", {"class": "family-name"}).get_text()
+			honorary_suffix = soup.find("span", {"class": "honorific-suffix"}).get_text()
+
+			info["name"] = (" ").join([string for string in [given_name, middle_name, family_name, honorary_suffix] if len(string) > 0])
+
+			address = soup.find("span", {"class": "street-address"}).get_text()
+
+			if address and len(address) > 0:
+				info["address"] = address
+
+			phone_div = soup.find("span", {"class": ["tel", "officePhone"]})
+
+			if phone_div:
+				phone_number = phone_div.find("span", {"class": "value"}).get_text()
+				if phone_number and len(phone_number) > 0:
+					info["phone"] = phone_number
+
+			email_span = soup.find("span", {"class": "email"})
+
+			if email_span:
+				email = email_span.find("a").get_text()
+				if email and len(email) > 0:
+					info["email"] = email
+			
+			if html:
+				with open("index.html", "wb") as output:
+					output.write(html.encode())
+
+			with open("person.json", "w") as person_file:
+				json.dump(info, person_file, sort_keys=True, indent=4, separators=(',', ': '))
+
+			headshot = soup.find("div", {"class": "headshot"})
+			
+			if headshot:
+				face = soup.find("img", {"class": "photo"})
+				self.handle_image(face, link)
+
+		except Exception as e:
+			print(e)
+			return
+		
+	def handle_image(self, image, pageLink):
+		image_link = image.get('src')
+		hostname = pageLink.split('/')[2:3][0]
+
+		try:
+			if not "https://" or not "http://" in image_link:
+				image_link = url_normalize(pageLink + "/" + image_link)
+				path = urllib.request.urlopen(image_link)
+				if '@@images' in path.url:
+					filename = path.url.split('/')[-4]
+				else:
+					filename = path.url.split('/')[-1]
+				if filename is 'thumb' or filename is 'preview' or filename is 'mini':
+					print('url not getting translated: ' + path.url)
+				image['alt'] = filename
+				while os.path.isfile(filename):
+					(root, ext) = os.path.splitext(filename)
+					filename = root + "(1)" + ext
+				urllib.request.urlretrieve(image_link, filename=filename)
+
+			elif hostname in image_link:
+				path = urllib.request.urlopen(image_link)
+				if '@@images' in path.url:
+					filename = path.url.split('/')[-3]
+				else:
+					filename = path.url.split('/')[-1]
+				if filename is 'thumb' or filename is 'preview' or filename is 'mini':
+					print('url not getting translated: ' + path.url)
+				image['alt'] = filename
+				while os.path.isfile(filename):
+					(root, ext) = os.path.splitext(filename)
+					filename = root + "(1)" + ext
+				urllib.request.urlretrieve(image_link, filename=filename)
+				
+		except Exception as e:
+			print(e)
+			print("image link not working: " + str(pageLink) + ": " + str(image_link))
+			self.errors.write(str(pageLink) + ": " + str(image_link)+"\n")
 
 	def parse_page(self, link, *args):
 		page = self.getPage(link)
@@ -325,54 +452,27 @@ class Parser:
 			print("not a content page " + str(e))
 			return
 		for image in images:
-			image_link = image.get('src')
-			try:
-				if not "https://" or not "http://" in image_link:
-					image_link = url_normalize(link + "/" + image_link)
-					path = urllib.request.urlopen(image_link)
-					if '@@images' in path.url:
-						filename = path.url.split('/')[-4]
-					else:
-						filename = path.url.split('/')[-1]
-					if filename is 'thumb' or filename is 'preview' or filename is 'mini':
-						print('url not getting translated: ' + path.url)
-					image['alt'] = filename
-					while os.path.isfile(filename):
-						(root, ext) = os.path.splitext(filename)
-						filename = root + "(1)" + ext
-					urllib.request.urlretrieve(image_link, filename=filename)
+			self.handle_image(image, link)
 
-				elif hostname in image_link:
-					path = urllib.request.urlopen(image_link)
-					if '@@images' in path.url:
-						filename = path.url.split('/')[-3]
-					else:
-						filename = path.url.split('/')[-1]
-					if filename is 'thumb' or filename is 'preview' or filename is 'mini':
-						print('url not getting translated: ' + path.url)
-					image['alt'] = filename
-					while os.path.isfile(filename):
-						(root, ext) = os.path.splitext(filename)
-						filename = root + "(1)" + ext
-					urllib.request.urlretrieve(image_link, filename=filename)
-					
-			except:
-				print("image link not working: " + str(link) + ": " + str(image_link))
-				self.errors.write(str(link) + ": " + str(image_link)+"\n")
 		for href in links:
 			self.chooseLinkOption(href)(link)
 
 		output = open("index.html", "wb")
+		meta = {}
+		meta["link"] = link
 		dirObject = {}
-		dirObject["path"] = link
+		dirObject["path"] = directory
 		try:
 			titleName = soup.find(attrs={"id": re.compile("parent-fieldname-title*") })
-			dirObject["title"] = titleName.string.strip('\n')
+			meta["title"] = titleName.string.strip('\n ')
+			dirObject["title"] = titleName.string.strip('\n ')
 		except Exception as e:
 			print(e)
 		self.pathInfo[directory] = dirObject
 		output.write(html.encode())
 		output.close()
+		with open("meta.json", "w") as outputMetaFile:
+			json.dump(meta, outputMetaFile, sort_keys=True, indent=4, separators=(',', ': '))
 
 if __name__ == '__main__':
 	if len(sys.argv) < 1:
