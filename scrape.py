@@ -242,7 +242,7 @@ class Parser:
 		for href in links:
 			self.chooseLinkOption(href)(link)
 
-		handle_listing(html, num)
+		self.handle_listing(html, num)
 
 	def handle_listing(self, htmlSoup, num):
 		try:
@@ -471,6 +471,13 @@ class Parser:
 			dirObject["title"] = titleName.string.strip('\n ')
 		except Exception as e:
 			print(e)
+
+		try:
+			description = soup.find(attrs={"id": re.compile("parent-fieldname-description") })
+			meta["description"] = description.string.strip('\n ')
+		except Exception as e:
+			print(e)
+
 		self.pathInfo[directory] = dirObject
 		output.write(html.encode())
 		output.close()
