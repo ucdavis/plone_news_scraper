@@ -179,20 +179,20 @@ class Parser:
 		hostname = link.split('/')[2:3][0]
 		auth_cookie = plone_login.get_session_cookie("http://" + hostname, sys.argv[2], sys.argv[3])
 		for k, v in auth_cookie.items():
-			new_cookie = requests.cookies.ccannot save file eate_cookie(k, v)
-			self.cookie.set_cookie(new_cookcannot save file e)
+			new_cookie = requests.cookies.create_cookie(k, v)
+			self.cookie.set_cookie(new_cookie)
 
 		self.build_opener()
 		return "login"
 
 	def getPage(self, link):
 		directory = link.split('/')[-1]
-		hdr = {'User-Agent': 'Mozilla/5.0'}cannot save file 
-		req = urllib.request.Request(link,hcannot save file aders=hdr)
+		hdr = {'User-Agent': 'Mozilla/5.0'}
+		req = urllib.request.Request(link, headers=hdr)
 		try:
-			page = urllib.request.urlopen(rcannot save file q)
+			page = urllib.request.urlopen(req)
 			if page.url is not link:
-				print(page.url + " is not "cannot save file + link)
+				print(page.url + " is not " + link)
 				result = self.parse(page.url)
 				if result is "login":
 					page = urllib.request.urlopen(req)
@@ -482,6 +482,7 @@ class Parser:
 			links += soup.find_all('a', {"class": "contenttype-link"})
 			links += soup.find_all('a', {"class": "contenttype-document"})
 			links += soup.find_all('a', {"class": "contenttype-folder"})
+			links += soup.find('header').find('nav').find_all('a')
 			links += [item for item in html.find_all('a', {"href": re.compile(hostname)}) if not ("class" in item.attrs and "internal-link" in item.attrs['class'])]
 			images = html.find_all('img')
 		except Exception as e:
