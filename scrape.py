@@ -183,7 +183,7 @@ class Parser:
 				return None
 		if 'text/html' not in page.headers['Content-Type']:
 			try:
-				urllib.request.urlretrieve(link, filename=(directory + ".pdf"))
+				urllib.request.urlretrieve(link, filename=(self.rootDir + "/files/" + directory + ".pdf"))
 			except Exception as e:
 				self.errors.write("cannot save file at regular url" + link + " error: " + str(e))
 				print("cannot save file at regular url" + link + " error: " + str(e))
@@ -445,7 +445,7 @@ class Parser:
 			print(e)
 			return
 		try:
-			links = html.find_all('a', {"class":"internal-link"})
+			links = soup.find_all('a', {"class":"internal-link"})
 			links += soup.find_all('a', {"class": "contenttype-link"})
 			links += soup.find_all('a', {"class": "contenttype-document"})
 			links += soup.find_all('a', {"class": "contenttype-folder"})
@@ -476,7 +476,7 @@ class Parser:
 			description = soup.find(attrs={"id": re.compile("parent-fieldname-description") })
 			meta["description"] = description.string.strip('\n ')
 		except Exception as e:
-			print(e)
+			pass
 
 		self.pathInfo[directory] = dirObject
 		output.write(html.encode())
