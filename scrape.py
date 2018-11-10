@@ -9,11 +9,26 @@ from collections import deque
 import re
 import plone_login
 import http.cookiejar
+import argparse
 
 agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.139 Safari/537.36'
 
+class URLFilter:
+	def __init__(self, link, args):
+		self.link = link
+		self.subtree = args.subtree
+		self.whitelistEnabled = args.whitelist is not None
+		if self.whitelistEnabled:
+			self.whitelist = re.compile(args.whitelist)
+	def filter(self, link):
+		if self.subtree and self.link not in link:
+			return False
+		if self.whitelistEnabled and self.whitelist.match(link) is None:
+			return False
+		return True
+
 class Parser:
-	def __init__(self):
+	def __init__(self, urlFilter):
 		self.pathInfo = {}
 		self.rootDir = os.path.abspath(os.path.curdir)
 		self.map_link_to_resource = open("index.json", "w")
@@ -22,6 +37,7 @@ class Parser:
 		self.cookie = http.cookiejar.CookieJar()
 		self.build_opener()
 		self.links = deque()
+		self.filter = urlFilter.filter
 
 	def loop(self):
 		while len(self.links) > 0:
@@ -191,6 +207,8 @@ class Parser:
 		return page
 
 	def parse(self, link, *args):
+		if not self.filter(link):
+			return None
 		if link in self.pages_parsed:
 			return None
 		self.pages_parsed.add(link)
@@ -484,10 +502,22 @@ class Parser:
 		with open("meta.json", "w") as outputMetaFile:
 			json.dump(meta, outputMetaFile, sort_keys=True, indent=4, separators=(',', ': '))
 
+
+argparser = argparse.ArgumentParser(description='Download a plone website')
+argparser.add_argument('url', type=str)
+argparser.add_argument('-u', type=str, dest='username', 
+					help='username')
+argparser.add_argument('-p', dest='password', type=str,
+                    help='password')
+argparser.add_argument('--whitelist', dest='whitelist', type=str)
+argparser.add_argument('--subtree', dest="subtree", action="store_true")
+
 if __name__ == '__main__':
 	if len(sys.argv) < 1:
 		raise AttributeError("please call with a url") 
-	parser = Parser()
+	args = argparser.parse_args()
+	urlFilter = URLFilter(sys.argv[1], args)
+	parser = Parser(urlFilter)
 	parser.links.append((sys.argv[1],))
 	parser.loop()
 	json.dump(parser.pathInfo, parser.map_link_to_resource, sort_keys=True, indent=4, separators=(',', ': '))
