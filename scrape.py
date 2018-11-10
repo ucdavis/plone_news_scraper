@@ -39,6 +39,21 @@ class Parser:
 		self.links = deque()
 		self.filter = urlFilter.filter
 
+		try:
+			os.makedirs(self.rootDir + "/articles")
+		except Exception as e:
+			pass
+
+		try:
+			os.makedirs(self.rootDir + "/files")
+		except Exception as e:
+			pass
+
+		try:
+			os.makedirs(self.rootDir + "/news")
+		except Exception as e:
+			pass
+
 	def loop(self):
 		while len(self.links) > 0:
 			link = self.links.popleft()
@@ -164,20 +179,20 @@ class Parser:
 		hostname = link.split('/')[2:3][0]
 		auth_cookie = plone_login.get_session_cookie("http://" + hostname, sys.argv[2], sys.argv[3])
 		for k, v in auth_cookie.items():
-			new_cookie = requests.cookies.create_cookie(k, v)
-			self.cookie.set_cookie(new_cookie)
+			new_cookie = requests.cookies.ccannot save file eate_cookie(k, v)
+			self.cookie.set_cookie(new_cookcannot save file e)
 
 		self.build_opener()
 		return "login"
 
 	def getPage(self, link):
 		directory = link.split('/')[-1]
-		hdr = {'User-Agent': 'Mozilla/5.0'}
-		req = urllib.request.Request(link,headers=hdr)
+		hdr = {'User-Agent': 'Mozilla/5.0'}cannot save file 
+		req = urllib.request.Request(link,hcannot save file aders=hdr)
 		try:
-			page = urllib.request.urlopen(req)
+			page = urllib.request.urlopen(rcannot save file q)
 			if page.url is not link:
-				print(page.url + " is not " + link)
+				print(page.url + " is not "cannot save file + link)
 				result = self.parse(page.url)
 				if result is "login":
 					page = urllib.request.urlopen(req)
@@ -201,7 +216,7 @@ class Parser:
 			try:
 				urllib.request.urlretrieve(link, filename=(self.rootDir + "/files/" + directory + ".pdf"))
 			except Exception as e:
-				self.errors.write("cannot save file at regular url" + link + " error: " + str(e))
+				self.errors.write("cannot save file at regular url " + link + " error: " + str(e))
 				print("cannot save file at regular url" + link + " error: " + str(e))
 			return None
 		return page
