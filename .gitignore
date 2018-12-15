@@ -10,3 +10,7 @@
 *.jpg
 *.jpeg
 *.pyc
+/articles/*
+/files/*
+/people/*
+/news/*
