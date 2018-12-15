@@ -498,7 +498,7 @@ class Parser:
 		meta = {}
 		meta["link"] = link
 		dirObject = {}
-		dirObject["path"] = directory
+		dirObject["link"] = link
 		try:
 			titleName = soup.find(attrs={"id": re.compile("parent-fieldname-title*") })
 			meta["title"] = titleName.string.strip('\n ')
