@@ -176,6 +176,8 @@ class Parser:
 		self.cdExecute(directory, parseArticle)
 
 	def login(self, link, *args):
+		if not len(sys.argv) > 3:
+			return None
 		hostname = link.split('/')[2:3][0]
 		auth_cookie = plone_login.get_session_cookie("http://" + hostname, sys.argv[2], sys.argv[3])
 		for k, v in auth_cookie.items():
@@ -492,6 +494,8 @@ class Parser:
 			self.handle_image(image, link)
 
 		for href in links:
+			if href['href'].split('/')[-1] is "":
+				href['href'] = href['href'][:-1]
 			self.chooseLinkOption(href)(link)
 
 		output = open("index.html", "wb")
